@@ -8,7 +8,7 @@ const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
 const CHANNEL_ID = process.env.CHANNEL_ID;
 const SEPAY_API_TOKEN = process.env.SEPAY_API_TOKEN;
 
-// ================== DISCORD ==================
+// ================== DISCORD BOT ==================
 const client = new Client({
   intents: [GatewayIntentBits.Guilds]
 });
@@ -23,70 +23,60 @@ client.login(DISCORD_TOKEN);
 const app = express();
 app.use(bodyParser.json());
 
-// ================== HEALTH ==================
+// ================== HEALTH CHECK ==================
 app.get("/", (req, res) => {
   res.send("OK");
 });
 
 // ================== SEPAY WEBHOOK ==================
 app.post("/sepay", async (req, res) => {
-  // ⚠️ TRẢ 200 NGAY – SEPAY KHÔNG TIMEOUT
+  // ⚠️ QUAN TRỌNG: TRẢ 200 NGAY ĐỂ SEPAY KHÔNG TIMEOUT
   res.status(200).json({ status: "ok" });
 
   try {
-    console.log("📩 RAW BODY:", JSON.stringify(req.body, null, 2));
+    console.log("📩 RAW SEPAY BODY:", JSON.stringify(req.body, null, 2));
 
-    // ===== CHECK API KEY =====
+    // ================== CHECK API KEY ==================
     const auth = req.headers.authorization || "";
     if (!auth.startsWith("Apikey ")) return;
 
     const token = auth.slice(7).trim();
     if (token !== SEPAY_API_TOKEN) return;
 
-    // ===== NỘI DUNG =====
+    // ================== AUTO DETECT SỐ TIỀN ==================
+    const rawAmount =
+      req.body.amount ??
+      req.body.transactionAmount ??
+      req.body.amount_in ??
+      req.body.money ??
+      req.body?.data?.amount ??
+      req.body?.data?.transactionAmount ??
+      0;
+
+    const amount = Number(rawAmount) || 0;
+
+    // ================== NỘI DUNG ==================
     const description =
       req.body.description ||
       req.body.content ||
       req.body?.data?.description ||
-      "";
+      "Không có nội dung";
 
-    // ===== THỜI GIAN =====
+    // ================== THỜI GIAN ==================
     const time =
       req.body.transactionDate ||
       req.body.time ||
+      req.body?.data?.time ||
       new Date().toLocaleString("vi-VN");
 
-    // ===== MÃ GD =====
+    // ================== MÃ GIAO DỊCH ==================
     const reference =
       req.body.reference ||
       req.body.transId ||
+      req.body?.data?.reference ||
       "N/A";
 
-    // ===== SỐ TIỀN (MB BANK FIX) =====
-    let amount =
-      Number(
-        req.body.amount ??
-        req.body.transactionAmount ??
-        req.body.amount_in ??
-        req.body.money ??
-        0
-      ) || 0;
-
-    // 🔥 MB BANK KHÔNG TRẢ AMOUNT → PARSE TỪ NỘI DUNG
-    if (amount === 0 && description) {
-      const match = description.match(/(\d{1,3}(?:[.,]\d{3})+)/);
-      if (match) {
-        amount = Number(match[1].replace(/[.,]/g, ""));
-      }
-    }
-
-    // ===== BỎ QUA NẾU KHÔNG TÌM ĐƯỢC TIỀN =====
-    if (amount === 0) {
-      console.log("⚠️ Không detect được số tiền, bỏ qua");
-      return;
-    }
-
-    // ===== SEND DISCORD =====
+    // ================== GỬI DISCORD ==================
     const channel = await client.channels.fetch(CHANNEL_ID);
 
     const embed = new EmbedBuilder()
@@ -100,7 +90,7 @@ app.post("/sepay", async (req, res) => {
         },
         {
           name: "📝 Nội dung",
-          value: description || "Không có",
+          value: description,
           inline: false
         },
         {
@@ -130,7 +120,7 @@ app.post("/sepay", async (req, res) => {
   }
 });
 
-// ================== LISTEN (RENDER) ==================
+// ================== LISTEN (BẮT BUỘC CHO RENDER) ==================
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`🚀 Webhook SePay running on port ${PORT}`);
